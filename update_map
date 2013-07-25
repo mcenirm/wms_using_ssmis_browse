@@ -1,0 +1,109 @@
+#!/bin/bash
+
+set -e
+set -u
+
+case $# in
+  0)  echo 1>&2 "Usage: $0 config ..." ; exit 1 ;;
+esac
+
+website=$(hostname)
+name=ssmis
+map=$name.map
+js=$name.js
+psql=( psql -t -q --set=ON_ERROR_STOP=TRUE )
+
+## PREFACE
+
+cat <<EOF > "$map"
+MAP
+
+  NAME    "$name"
+  EXTENT  -180 -90 180 90
+
+  WEB
+    METADATA
+      "ows_title"           "$name"
+      "ows_onlineresource"  "http://${hostname}/map/${map}?"
+      "ows_srs"             "EPSG:4326"
+      "ows_enable_request"  "*"
+    END
+  END # Web
+
+  PROJECTION
+    "init=epsg:4326"
+  END
+
+EOF
+
+cat <<EOF > "$js"
+EOF
+
+## LAYERS
+for conf in "$@" ; do
+  # clear old values
+  unset -v table period
+
+  # load config file
+  . "$conf"
+
+  # sanity check config settings
+  : "$table"
+  : "$period"
+
+  # get date range
+  read -r date_min __ date_max < <( "${psql[@]}" -c "SELECT MIN(date_from),MAX(date_from) from $table;" )
+
+  cat <<EOF >> "$map"
+  LAYER
+    DEBUG ON
+    NAME            "${table}_tileindex"
+    TYPE            POLYGON
+    STATUS          OFF
+    CONNECTIONTYPE  postgis
+    CONNECTION      "host=$PGHOST port=$PGPORT dbname=$PGDATABASE user=$PGUSER"
+    DATA            "bbox from $table"
+    METADATA
+      "ows_enable_request"  "!*"
+    END
+  END
+
+  LAYER
+    DEBUG ON
+    NAME  "$table"
+    METADATA
+      "ows_title"        "$table"
+      "ows_timeitem"     "date_from"
+      "ows_timeextent"   "$date_min/$date_max/$period"
+      "ows_timedefault"  "$date_max"
+    END
+    TYPE       RASTER
+    STATUS     OFF
+    TILEITEM   "file"
+    TILEINDEX  "${table}_tileindex"
+    EXTENT     -180 -90 180 90
+  END
+
+EOF
+
+  cat <<EOF >> "$js"
+X.add_layer({
+  'name': '$table',
+  'date_range': {
+    'min': '$date_min',
+    'max': '$date_max',
+    'period': '$period',
+  },
+});
+
+EOF
+
+done
+
+## POSTFACE
+cat <<EOF >> "$map"
+END
+EOF
+
+cat <<EOF >> "$js"
+EOF
