@@ -1,0 +1,32 @@
+#!/bin/bash
+
+set -e
+set -u
+
+case $# in
+  1)  conf="$1" ;;
+  *)  echo 1>&2 "Usage: $0 config" ; exit 1 ;;
+esac
+
+## START
+
+# load config file
+. "$conf"
+
+# sanity check config settings
+: "$table"
+
+#...
+psql=( psql -q --set=ON_ERROR_STOP=TRUE )
+
+#...
+"${psql[@]}" -f - <<EOF
+BEGIN;
+SELECT DropGeometryTable('${table}');
+DROP TABLE IF EXISTS ${table};
+CREATE TABLE ${table} (file TEXT PRIMARY KEY, date_from DATE);
+SELECT AddGeometryColumn('${table}','bbox',4326,'POLYGON',2);
+ALTER TABLE ${table} ALTER COLUMN bbox SET DEFAULT ST_MakeEnvelope(-180,-90,180,90,4326);
+CREATE INDEX ${table}_date_from_idx ON ${table} (date_from);
+COMMIT;
+EOF
