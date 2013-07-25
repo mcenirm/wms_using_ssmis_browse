@@ -1,0 +1,58 @@
+#!/bin/bash
+
+set -e
+set -u
+
+top=/ftp/pub/ssmis
+
+update_conf () {
+  sat=$1
+  var=$2
+  tree=$3
+  date_pattern=$4
+  shift 4
+
+  suffix=''
+  date_from_skew=0
+  period=P1D
+  while [ $# -gt 0 ] ; do
+    case "$1" in
+      suffix=*) suffix=${1#*=} ; shift ;;
+      date_from_skew=*) date_from_skew=${1#*=} ; shift ;;
+      period=*) period=${1#*=} ; shift ;;
+      *) echo 1>&2 "update_conf: bad parameter: $1" ; exit 1 ;;
+    esac
+  done
+
+  varlc=${var,,}
+  suffixlc=${suffix,,}
+  date_glob=${date_pattern//?/\?}
+  table=ssmis_${tree}_${sat}${suffixlc:+_$suffixlc}_${varlc}
+  conf=conf/${table}.conf
+
+  cat <<EOF > $conf
+sat=${sat}
+tree=${tree}
+suffix=${suffix}
+var=${var}
+top=${top}/${sat}/${tree}/browse
+glob='${sat}_ssmis_${date_glob}v7${suffix:+_$suffix}_${var}'
+ext=png
+table=${table}
+extract_date_func=extract_date_${date_pattern}
+extract_date_opts=10
+date_from_skew=${date_from_skew}
+period=${period}
+EOF
+}
+
+for sat in f16 f17 ; do
+  for var in CW RR WS WV ; do
+    update_conf $sat $var 3day yyyymmdd suffix=d3d date_from_skew=-2
+    update_conf $sat $var daily yyyymmdd suffix=A
+    update_conf $sat $var daily yyyymmdd suffix=D
+    update_conf $sat $var monthly yyyymm period=P1M
+    update_conf $sat $var weekly yyyymmdd suffix=wk date_from_skew=-6 period=P7D
+  done
+done
+
