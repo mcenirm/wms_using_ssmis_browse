@@ -1,0 +1,48 @@
+#!/bin/bash
+
+set -e
+set -u
+
+case $# in
+  1)  conf="$1" ;;
+  *)  echo 1>&2 "Usage: $0 config" ; exit 1 ;;
+esac
+
+## date extraction functions
+
+# extract_date_yyyymmdd OFFSET STRING
+extract_date_yyyymmdd () {
+  date=${2:${1}:8}
+  echo "${date:0:4}-${date:4:2}-${date:6:2}"
+}
+
+# extract_date_yyyymm OFFSET STRING
+extract_date_yyyymm () {
+  date=${2:${1}:6}
+  echo "${date:0:4}-${date:4:2}-01"
+}
+
+
+## START
+
+# load config file
+. "$conf"
+
+# sanity check config settings
+: "$top $glob"
+: "$table"
+: "$extract_date_func $extract_date_opts"
+: "$date_from_skew"
+
+#...
+psql=( psql -q --set=ON_ERROR_STOP=TRUE )
+
+# process all files
+find "$top" -name "$glob.vrt" -print | while read file ; do
+  base=$(basename "$file")
+  date=$("$extract_date_func" $extract_date_opts "$base")
+  "${psql[@]}" -c "DELETE FROM $table WHERE file = '$file'"
+  sql="INSERT INTO $table (date_from,file)"
+  sql="$sql VALUES ('$date'::date + $date_from_skew,'$file')"
+  "${psql[@]}" -c "$sql"
+done
